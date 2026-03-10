@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create .env file from secrets
+        run: |
+          echo "APP_MESSAGE=${{ secrets.APP_MESSAGE }}" > .env
+          echo "APP_HEALTH=${{ secrets.APP_HEALTH }}" >> .env
+
+      - name: Verify .env was created
+        run: cat .env
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and run with Docker Compose
+        run: docker compose up -d --build
+
+      - name: Show running containers
+        run: docker ps -a
+
+      - name: Show container logs
+        run: docker compose logs
+
+      - name: Wait for app to be ready
+        run: |
+          for i in {1..10}; do
+            if curl -s http://localhost:5000 > /dev/null; then
+              echo "App is ready!"
+              exit 0
+            fi
+            echo "Waiting for app... ($i/10)"
+            sleep 2
+          done
+          echo "App failed to start within timeout"
+          docker compose logs
+          exit 1
+
+      - name: Test home route
+        run: curl -f http://localhost:5000 | grep "${{ secrets.APP_MESSAGE }}"
+
+      - name: Test health route
+        run: curl -f http://localhost:5000/health | grep "${{ secrets.APP_HEALTH }}"
+
+      - name: Shut down containers
+        run: docker compose down
